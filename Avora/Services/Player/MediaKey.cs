@@ -1,0 +1,14 @@
+﻿namespace Avora.Services.Player
+{
+    #region Media Key Hook Classes
+
+    public enum MediaKey
+    {
+        PlayPause,
+        Next,
+        Previous,
+        Stop
+    }
+
+    #endregion
+}

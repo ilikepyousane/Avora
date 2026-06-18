@@ -1,0 +1,77 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using MusicX.Core.Models;
+using Avora.Views.Controls;
+using static Avora.Views.Controls.BlockButtonView;
+
+// To learn more about WinUI, the WinUI project structure,
+// and more about our project templates, see: http://aka.ms/winui-project-info.
+
+namespace Avora.Controls.Blocks
+{
+
+    public sealed partial class Buttons : UserControl
+    {
+        Block block { get { return DataContext as Block; } }
+        public Buttons()
+        {
+
+            this.InitializeComponent();
+
+            this.DataContextChanged += Buttons_DataContextChanged;
+        }
+
+
+
+        private void Buttons_DataContextChanged(Microsoft.UI.Xaml.FrameworkElement sender, Microsoft.UI.Xaml.DataContextChangedEventArgs args)
+        {
+            if (DataContext is not Block bloc) return;
+
+            gridV.Items.Clear();
+
+
+            foreach (var item in bloc.Actions)
+            {
+                var action = item;
+
+                if (action.Title == "Настроить рекомендации") continue;
+
+                // Проверяем, является ли кнопка микса артиста (есть MixId или Images)
+                if (!string.IsNullOrEmpty(action.MixId) || (action.Images != null && action.Images.Count > 0))
+                {
+                    // Создаем ArtistMixButton
+                    var mixButton = new ArtistMixButton()
+                    {
+                        Margin = new Thickness(0, 10, 15, 10),
+                        Width = 200,
+                        Height = 260,
+                        DataContext = action,
+                        Button = action
+                    };
+                    gridV.Items.Add(mixButton);
+                }
+                else
+                {
+                    // Обычная кнопка
+                    var button = new BlockButtonView()
+                    {
+                        Margin = new Thickness(0, 10, 15, 10),
+                        DataContext = new BlockBTN(action, parentBlock: block),
+                        Height = 45,
+                        blockBTN = new BlockBTN(action, parentBlock: block)
+                    };
+
+                    if (button.DataContext is BlockBTN viewModel)
+                    {
+                        button.Command = button.InvokeCommand;
+                    }
+
+                    button.MinWidth = 170;
+                    button.Refresh();
+                    gridV.Items.Add(button);
+                }
+            }
+
+        }
+    }
+}
