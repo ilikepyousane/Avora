@@ -193,9 +193,7 @@ namespace SetupLib.Services
                         CreateNoWindow = true
                     });
 
-                    OnInstallStatusChanged("Обновление запущено...");
-                    Thread.Sleep(1000);
-                    Process.GetCurrentProcess().Kill();
+                    Environment.Exit(0);
                     return;
                 }
                 else
