@@ -182,7 +182,7 @@ namespace SetupLib.Services
                 if (packageType == PackageType.ZIP)
                 {
                     string scriptPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.ps1");
-                    File.WriteAllText(scriptPath, command);
+                    File.WriteAllText(scriptPath, command, Encoding.UTF8);
 
                     Process.Start(new ProcessStartInfo
                     {
@@ -193,7 +193,7 @@ namespace SetupLib.Services
                         CreateNoWindow = true
                     });
 
-                    Environment.Exit(0);
+                    OnInstallStatusChanged("Примите UAC для обновления.");
                     return;
                 }
                 else
