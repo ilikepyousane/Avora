@@ -179,16 +179,30 @@ namespace SetupLib.Services
 
             try
             {
-                string output;
                 if (packageType == PackageType.ZIP)
                 {
-                    output = ExecutePowerShellCommand(command, true);
+                    string scriptPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.ps1");
+                    File.WriteAllText(scriptPath, command);
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "powershell.exe",
+                        Arguments = $"-ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                        UseShellExecute = true,
+                        Verb = "runas",
+                        CreateNoWindow = true
+                    });
+
+                    OnInstallStatusChanged("Обновление запущено...");
+                    Thread.Sleep(1000);
+                    Process.GetCurrentProcess().Kill();
+                    return;
                 }
                 else
                 {
-                    output = ExecutePowerShellCommand(command);
+                    string output = ExecutePowerShellCommand(command);
+                    OnInstallStatusChanged($"Результат установки:\r\n{output}");
                 }
-                OnInstallStatusChanged($"Результат установки:\r\n{output}");
             }
             catch (Exception ex)
             {
