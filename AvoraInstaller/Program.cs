@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
@@ -14,380 +15,275 @@ class Program
     private const string AppName = "Avora";
     private static readonly string InstallPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppName);
-    private static readonly string TempPath = Path.Combine(Path.GetTempPath(), "AvoraSetup");
+    private static readonly string TempDir = Path.Combine(Path.GetTempPath(), "AvoraSetup");
 
     static async Task Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
         Console.Title = "Avora - Установка";
-
-        PrintHeader();
-
-        if (!IsRunningAsAdministrator())
-        {
-            PrintError("Для установки необходимы права администратора.");
-            PrintInfo("Запустите установщик от имени администратора.");
-            WaitForExit();
-            return;
-        }
-
-        Directory.CreateDirectory(TempPath);
-
-        // Step 1: Check .NET Runtime
-        PrintStep(1, 4, "Проверка .NET Desktop Runtime 8.0...");
-        if (!CheckDotNetRuntime())
-        {
-            PrintWarning(".NET Desktop Runtime 8.0 не найден.");
-            await InstallDotNetRuntime();
-        }
-        else
-        {
-            PrintOk(".NET Desktop Runtime 8.0 установлен.");
-        }
-
-        // Step 2: Check Windows App Runtime
-        PrintStep(2, 4, "Проверка Windows App Runtime...");
-        if (!CheckWindowsAppRuntime())
-        {
-            PrintWarning("Windows App Runtime не найден.");
-            await InstallWindowsAppRuntime();
-        }
-        else
-        {
-            PrintOk("Windows App Runtime установлен.");
-        }
-
-        // Step 3: Download Avora
-        PrintStep(3, 4, "Загрузка Avora...");
-        var zipPath = await DownloadAvora();
-        if (zipPath == null)
-        {
-            PrintError("Не удалось загрузить Avora.");
-            WaitForExit();
-            return;
-        }
-        PrintOk("Avora загружен.");
-
-        // Step 4: Install Avora
-        PrintStep(4, 4, "Установка Avora...");
-        await InstallAvora(zipPath);
-        PrintOk("Avora установлен в: " + InstallPath);
-
-        // Cleanup
-        try { Directory.Delete(TempPath, true); } catch { }
-
-        // Create shortcut
-        CreateDesktopShortcut();
-
-        Console.WriteLine();
-        PrintOk("Установка завершена!");
-        Console.WriteLine();
-
-        var launch = AskQuestion("Запустить Avora сейчас? (y/n): ");
-        if (launch.ToLower() == "y")
-        {
-            var exePath = FindAvoraExe();
-            if (exePath != null)
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    UseShellExecute = true
-                });
-            }
-        }
-    }
-
-    static void PrintHeader()
-    {
-        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("╔══════════════════════════════════════════╗");
         Console.WriteLine("║         Avora - Установщик v0.1.0       ║");
         Console.WriteLine("╚══════════════════════════════════════════╝");
-        Console.ResetColor();
         Console.WriteLine();
-    }
 
-    static void PrintStep(int current, int total, string message)
-    {
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write($"[{current}/{total}] ");
-        Console.ResetColor();
-        Console.WriteLine(message);
-    }
+        try
+        {
+            Directory.CreateDirectory(TempDir);
 
-    static void PrintOk(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write("  ✓ ");
-        Console.ResetColor();
-        Console.WriteLine(message);
-    }
+            Console.WriteLine("[1/5] Проверка .NET 8.0 Desktop Runtime...");
+            await CheckDotNet();
 
-    static void PrintWarning(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.Write("  ⚠ ");
-        Console.ResetColor();
-        Console.WriteLine(message);
-    }
+            Console.WriteLine("[2/5] Проверка Windows App Runtime...");
+            await CheckWinAppRuntime();
 
-    static void PrintError(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write("  ✗ ");
-        Console.ResetColor();
-        Console.WriteLine(message);
-    }
+            Console.WriteLine("[3/5] Скачивание Avora...");
+            var zipPath = await DownloadLatestRelease();
+            Console.WriteLine("  ✓ Скачано.");
 
-    static void PrintInfo(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.WriteLine("  " + message);
-        Console.ResetColor();
-    }
+            Console.WriteLine("[4/5] Установка...");
+            Install(zipPath);
+            Console.WriteLine($"  ✓ Установлено в: {InstallPath}");
 
-    static string AskQuestion(string question)
-    {
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  " + question);
-        Console.ResetColor();
-        return Console.ReadLine() ?? "";
-    }
+            Console.WriteLine("[5/5] Ярлык...");
+            CreateShortcut();
+            Console.WriteLine("  ✓ Ярлык создан.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ✗ Ошибка: {ex.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(TempDir, true); } catch { }
+        }
 
-    static bool IsRunningAsAdministrator()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        var principal = new WindowsPrincipal(identity);
-        return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        Console.WriteLine();
+        Console.WriteLine("  Установка завершена!");
+        Console.Write("  Запустить Avora? (y/n): ");
+        if (Console.ReadLine()?.Trim().ToLower() == "y")
+        {
+            var exe = FindExe();
+            if (exe != null) Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+        }
     }
 
     static bool CheckDotNetRuntime()
     {
         try
         {
-            var result = RunCommand("dotnet", "--list-runtimes");
-            return result.Contains("Microsoft.WindowsDesktop.App 8.");
+            var psi = new ProcessStartInfo("dotnet", "--list-runtimes")
+            {
+                RedirectStandardOutput = true, CreateNoWindow = true, UseShellExecute = false
+            };
+            var proc = Process.Start(psi)!;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit();
+            return output.Contains("Microsoft.WindowsDesktop.App 8.");
         }
-        catch
-        {
-            return false;
-        }
+        catch { return false; }
     }
 
-    static bool CheckWindowsAppRuntime()
+    static async Task CheckDotNet()
+    {
+        if (CheckDotNetRuntime())
+        {
+            Console.WriteLine("  ✓ Уже установлен.");
+            return;
+        }
+
+        Console.WriteLine("  ⚠ Не найден. Скачивание и установка...");
+        var version = await GetLatestDotNetVersion();
+        Console.WriteLine($"  → Версия: {version}");
+
+        string url = RuntimeInformation.OSArchitecture switch
+        {
+            Architecture.X64 => $"https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/{version}/windowsdesktop-runtime-{version}-win-x64.exe",
+            Architecture.Arm64 => $"https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/{version}/windowsdesktop-runtime-{version}-win-arm64.exe",
+            _ => throw new Exception("Неподдерживаемая архитектура")
+        };
+        await DownloadAndRun(url, "Установка .NET 8.0...");
+    }
+
+    static async Task<string> GetLatestDotNetVersion()
+    {
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("User-Agent", "AvoraInstaller");
+        var json = await http.GetStringAsync("https://dotnetcli.azureedge.net/dotnet/release-metadata/8.0/releases.json");
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        var latest = doc.RootElement.GetProperty("releases")[0];
+        return latest.GetProperty("release-version").GetString()!;
+    }
+
+    static bool IsWinAppRuntimeInstalled()
     {
         try
         {
-            var result = RunCommand("powershell.exe",
-                "-Command \"Get-AppxPackage -Name *WindowsAppRuntime* | Select-Object -First 1\"");
-            return !string.IsNullOrWhiteSpace(result);
+            var psi = new ProcessStartInfo("powershell.exe",
+                "-NoProfile -Command \"Get-AppxPackage -AllUsers *WindowsAppRuntime* | Select-Object -First 1 -ExpandProperty Version\"")
+            {
+                RedirectStandardOutput = true, CreateNoWindow = true, UseShellExecute = false
+            };
+            var proc = Process.Start(psi)!;
+            var output = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit();
+            return !string.IsNullOrEmpty(output);
         }
-        catch
-        {
-            return false;
-        }
+        catch { return false; }
     }
 
-    static async Task InstallDotNetRuntime()
+    static async Task CheckWinAppRuntime()
     {
-        PrintInfo("Скачивание .NET Desktop Runtime 8.0...");
-
-        var arch = RuntimeInformation.OSArchitecture;
-        string url = arch switch
+        if (IsWinAppRuntimeInstalled())
         {
-            Architecture.X64 => "https://download.visualstudio.microsoft.com/download/pr/907765b0-2bf7-4e21-a054-4c5d4e4c123e/a534614133f6e3b2e3a2c9b5b3c5e8c0/windowsdesktop-runtime-8.0.11-win-x64.exe",
-            Architecture.Arm64 => "https://download.visualstudio.microsoft.com/download/pr/907765b0-2bf7-4e21-a054-4c5d4e4c123e/a534614133f6e3b2e3a2c9b5b3c5e8c0/windowsdesktop-runtime-8.0.11-win-arm64.exe",
+            Console.WriteLine("  ✓ Уже установлен.");
+            return;
+        }
+
+        Console.WriteLine("  ⚠ Не найден. Скачивание и установка...");
+        var (major, version) = await GetLatestWinAppRuntimeVersion();
+        Console.WriteLine($"  → Версия: {version}");
+
+        string url = RuntimeInformation.OSArchitecture switch
+        {
+            Architecture.X64 => $"https://aka.ms/windowsappsdk/{major}/{version}/windowsappruntimeinstall-x64.exe",
+            Architecture.Arm64 => $"https://aka.ms/windowsappsdk/{major}/{version}/windowsappruntimeinstall-arm64.exe",
             _ => throw new Exception("Неподдерживаемая архитектура")
         };
-
-        var installerPath = Path.Combine(TempPath, "dotnet-runtime.exe");
-        await DownloadFile(url, installerPath);
-
-        PrintInfo("Установка .NET Desktop Runtime 8.0...");
-        RunCommand(installerPath, "/install /quiet /norestart");
-        PrintOk(".NET Desktop Runtime 8.0 установлен.");
+        await DownloadAndRun(url, "Установка Windows App Runtime...");
     }
 
-    static async Task InstallWindowsAppRuntime()
+    static async Task<(string major, string version)> GetLatestWinAppRuntimeVersion()
     {
-        PrintInfo("Скачивание Windows App Runtime...");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("User-Agent", "AvoraInstaller");
+        var json = await http.GetStringAsync("https://api.github.com/repos/microsoft/WindowsAppSDK/releases?per_page=10");
+        var releases = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement[]>(json)!;
 
-        var arch = RuntimeInformation.OSArchitecture;
-        string url = arch switch
+        foreach (var release in releases)
         {
-            Architecture.X64 => $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/0.1.0/WindowsAppRuntimeInstall.1.6.3-x64.exe",
-            Architecture.Arm64 => $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/0.1.0/WindowsAppRuntimeInstall.1.6.3-arm64.exe",
-            Architecture.X86 => $"https://github.com/{GitHubOwner}/{GitHubRepo}/releases/download/0.1.0/WindowsAppRuntimeInstall.1.6.3-x86.exe",
-            _ => throw new Exception("Неподдерживаемая архитектура")
-        };
+            var tag = release.GetProperty("tag_name").GetString()!;
+            if (tag.StartsWith("v") && !tag.Contains("exp") && !tag.Contains("preview"))
+            {
+                var version = tag.TrimStart('v');
+                var parts = version.Split('.');
+                var major = $"{parts[0]}.{parts[1]}";
+                return (major, version);
+            }
+        }
 
-        var installerPath = Path.Combine(TempPath, "WindowsAppRuntime.exe");
-        await DownloadFile(url, installerPath);
-
-        PrintInfo("Установка Windows App Runtime...");
-        RunCommand(installerPath, "--quiet");
-        PrintOk("Windows App Runtime установлен.");
+        throw new Exception("Не удалось найти стабильную версию Windows App Runtime");
     }
 
-    static async Task<string?> DownloadAvora()
+    static async Task DownloadAndRun(string url, string description)
     {
-        PrintInfo("Получение информации о последнем релизе...");
+        var installerPath = Path.Combine(TempDir, "dep_installer.exe");
+        Console.Write($"  Скачивание...");
 
+        using (var http = new HttpClient())
+        {
+            http.DefaultRequestHeaders.Add("User-Agent", "AvoraInstaller");
+            using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            resp.EnsureSuccessStatusCode();
+            await using var stream = await resp.Content.ReadAsStreamAsync();
+            await using var file = File.Create(installerPath);
+            await stream.CopyToAsync(file);
+        }
+        Console.WriteLine(" ✓");
+
+        Console.Write($"  Установка...");
+        var psi = new ProcessStartInfo(installerPath, "/install /quiet /norestart")
+        {
+            UseShellExecute = true, Verb = "runas"
+        };
+        var proc = Process.Start(psi)!;
+        await proc.WaitForExitAsync();
+        Console.WriteLine(" ✓");
+    }
+
+    static async Task<string> DownloadLatestRelease()
+    {
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Add("User-Agent", "AvoraInstaller");
 
-        var releaseJson = await http.GetStringAsync(
+        var json = await http.GetStringAsync(
             $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest");
+        var doc = System.Text.Json.JsonDocument.Parse(json);
 
-        // Find .zip asset URL
-        var zipMatch = System.Text.RegularExpressions.Regex.Match(
-            releaseJson, @"""browser_download_url""\s*:\s*""([^""]*\.zip)""");
-
-        if (!zipMatch.Success)
+        string? zipUrl = null;
+        foreach (var asset in doc.RootElement.GetProperty("assets").EnumerateArray())
         {
-            PrintError("ZIP файл не найден в релизе.");
-            return null;
+            var name = asset.GetProperty("name").GetString() ?? "";
+            if (name.EndsWith(".zip"))
+            {
+                zipUrl = asset.GetProperty("browser_download_url").GetString();
+                break;
+            }
         }
 
-        var zipUrl = zipMatch.Groups[1].Value;
-        var zipPath = Path.Combine(TempPath, "Avora.zip");
+        if (zipUrl == null) throw new Exception("ZIP не найден в релизе");
 
-        await DownloadFile(zipUrl, zipPath);
+        var zipPath = Path.Combine(TempDir, "Avora.zip");
+        Console.Write("  Скачивание...");
+        using var resp = await http.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync();
+        await using var file = File.Create(zipPath);
+        await stream.CopyToAsync(file);
+        Console.WriteLine(" ✓");
+
         return zipPath;
     }
 
-    static async Task InstallAvora(string zipPath)
+    static void Install(string zipPath)
     {
         if (Directory.Exists(InstallPath))
-        {
-            var confirm = AskQuestion("Avora уже установлена. Переустановить? (y/n): ");
-            if (confirm.ToLower() != "y")
-            {
-                PrintInfo("Установка отменена.");
-                return;
-            }
-
-            // Kill running processes
-            foreach (var proc in Process.GetProcessesByName("Avora"))
-            {
-                try { proc.Kill(); } catch { }
-            }
-            await Task.Delay(1000);
-        }
-
+            Directory.Delete(InstallPath, true);
         Directory.CreateDirectory(InstallPath);
-        ZipFile.ExtractToDirectory(zipPath, InstallPath, overwriteFiles: true);
 
-        // Find and fix exe name if needed
-        var exePath = FindAvoraExe();
-        if (exePath != null && Path.GetFileName(exePath) != "Avora.exe")
+        using (var archive = ZipFile.OpenRead(zipPath))
         {
-            var targetPath = Path.Combine(InstallPath, "Avora.exe");
-            File.Copy(exePath, targetPath, true);
+            foreach (var entry in archive.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name)) continue;
+                var fullName = entry.FullName;
+                var idx = fullName.IndexOf("win-x64");
+                if (idx >= 0)
+                {
+                    var after = fullName.Substring(idx + 7);
+                    if (after.StartsWith("/") || after.StartsWith("\\"))
+                        after = after.Substring(1);
+                    fullName = after;
+                }
+                if (string.IsNullOrEmpty(fullName)) continue;
+                var dest = Path.Combine(InstallPath, fullName);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                using var src = entry.Open();
+                using var dst = File.Create(dest);
+                src.CopyTo(dst);
+            }
         }
     }
 
-    static string? FindAvoraExe()
+    static string? FindExe()
     {
-        if (!Directory.Exists(InstallPath)) return null;
-
-        var exe = Directory.GetFiles(InstallPath, "*.exe", SearchOption.AllDirectories)
-            .FirstOrDefault(f =>
-            {
-                var name = Path.GetFileNameWithoutExtension(f);
-                return name.Contains("Avora", StringComparison.OrdinalIgnoreCase) ||
-                       name.Contains("VK", StringComparison.OrdinalIgnoreCase);
-            });
-
-        return exe;
+        var exe = Directory.GetFiles(InstallPath, "Avora.exe", SearchOption.AllDirectories);
+        return exe.FirstOrDefault();
     }
 
-    static void CreateDesktopShortcut()
+    static void CreateShortcut()
     {
         try
         {
-            var exePath = FindAvoraExe();
-            if (exePath == null) return;
-
-            var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            var shortcutPath = Path.Combine(desktopPath, "Avora.lnk");
-
-            Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
-            if (shellType == null) return;
-
-            dynamic shell = Activator.CreateInstance(shellType);
-            var shortcut = shell.CreateShortcut(shortcutPath);
-            shortcut.TargetPath = exePath;
-            shortcut.WorkingDirectory = InstallPath;
-            shortcut.Description = "Avora Music Player";
-            shortcut.Save();
-
-            PrintOk("Ярлык создан на рабочем столе.");
+            var exe = FindExe();
+            if (exe == null) return;
+            var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!);
+            var sc = ((dynamic)shell).CreateShortcut(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Avora.lnk"));
+            sc.TargetPath = exe;
+            sc.WorkingDirectory = InstallPath;
+            sc.Description = "Avora Music Player";
+            sc.Save();
         }
-        catch (Exception ex)
-        {
-            PrintWarning("Не удалось создать ярлык: " + ex.Message);
-        }
-    }
-
-    static async Task DownloadFile(string url, string destinationPath)
-    {
-        using var http = new HttpClient();
-        http.Timeout = TimeSpan.FromMinutes(10);
-
-        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-
-        var totalBytes = response.Content.Headers.ContentLength ?? -1;
-        var totalRead = 0L;
-        var buffer = new byte[8192];
-
-        await using var contentStream = await response.Content.ReadAsStreamAsync();
-        await using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write);
-
-        int bytesRead;
-        while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
-        {
-            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
-            totalRead += bytesRead;
-
-            if (totalBytes > 0)
-            {
-                var percent = (int)(totalRead * 100 / totalBytes);
-                Console.Write($"\r  Загрузка... {percent}% ({totalRead / 1024 / 1024} МБ / {totalBytes / 1024 / 1024} МБ)");
-            }
-            else
-            {
-                Console.Write($"\r  Загрузка... {totalRead / 1024 / 1024} МБ");
-            }
-        }
-        Console.WriteLine();
-    }
-
-    static string RunCommand(string fileName, string arguments)
-    {
-        using var process = Process.Start(new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        });
-
-        if (process == null) return "";
-
-        var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        return output;
-    }
-
-    static void WaitForExit()
-    {
-        Console.WriteLine();
-        PrintInfo("Нажмите любую клавишу для выхода...");
-        Console.ReadKey(true);
+        catch { }
     }
 }

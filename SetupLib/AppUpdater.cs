@@ -61,17 +61,11 @@ namespace SetupLib
         {
             InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs { Status = "Проверка наличия обновлений..." });
 
-            _currentReleaseInfo = await _gitHubClientService.GetLatestReleaseInfo("ilikepyousane", "Avora", currentVersion);
+            _currentReleaseInfo = await _gitHubClientService.GetLatestReleaseInfo("", "", currentVersion);
 
-            if (_currentReleaseInfo == null)
+            if (_currentReleaseInfo == null || !_currentReleaseInfo.IsNewVersionAvailable)
             {
-                InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs { Status = "Не найдено подходящих релизов." });
-                return false;
-            }
-
-            if (!_currentReleaseInfo.IsNewVersionAvailable)
-            {
-                InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs { Status = $"Установлена последняя версия: {_currentReleaseInfo.Version}" });
+                InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs { Status = "Установлена последняя версия." });
                 return false;
             }
 
@@ -81,11 +75,8 @@ namespace SetupLib
 
             InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs
             {
-                Status = $"Найдена новая версия: {_currentReleaseInfo.Version} ({_systemService.GetOSArchitecture()})\n" +
-                        $"Доступные форматы: {string.Join(", ", _currentReleaseInfo.Assets.Keys)}"
+                Status = $"Найдена новая версия: {_currentReleaseInfo.Version}"
             });
-
-            InstallStatusChanged?.Invoke(this, new InstallStatusChangedEventArgs { Status = "Информация о релизе получена успешно." });
 
             return true;
         }

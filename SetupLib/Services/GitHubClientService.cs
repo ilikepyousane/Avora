@@ -1,217 +1,95 @@
 using SetupLib.Interfaces;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace SetupLib.Services
 {
     public class GitHubClientService : IGitHubClientService
     {
-        private readonly Octokit.GitHubClient _client;
-
-        public GitHubClientService()
-        {
-            _client = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("Avora"));
-        }
+        private const string GitHubOwner = "ilikepyousane";
+        private const string GitHubRepo = "Avora";
 
         public async Task<ReleaseInfo> GetLatestReleaseInfo(string owner, string repo, string currentVersion)
         {
-            var releases = await _client.Repository.Release.GetAll(owner, repo);
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "Avora");
 
-            // Сортируем релизы от новых к старым
-            var sortedReleases = releases.OrderByDescending(r => r.TagName, new VersionComparer())
-                                        .ToList();
+            var json = await http.GetStringAsync(
+                $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest");
 
-            string osArchitecture = RuntimeInformation.OSArchitecture switch
+            var doc = JsonDocument.Parse(json);
+            var tag = (doc.RootElement.GetProperty("tag_name").GetString() ?? "").TrimStart('v');
+
+            if (CompareVersions(tag, currentVersion) <= 0)
+                return new ReleaseInfo { IsNewVersionAvailable = false };
+
+            string osArch = RuntimeInformation.OSArchitecture switch
             {
-                Architecture.Arm64 => "ARM64",
                 Architecture.X64 => "x64",
+                Architecture.Arm64 => "ARM64",
                 Architecture.X86 => "x86",
-                _ => throw new Exception("Неизвестная архитектура")
+                _ => "x64"
             };
 
-            // Проходим по всем релизам начиная с самого нового
-            foreach (var release in sortedReleases)
-            {
-                // Проверяем, не старая ли это версия (текущая или младше)
-                int comparisonResult = CompareVersions(release.TagName, currentVersion);
-                if (comparisonResult <= 0)
-                {
-                    // Дошли до текущей или более старой версии, прекращаем поиск
-                    break;
-                }
+            string? zipUrl = null;
+            long zipSize = 0;
 
-                // Проверяем, есть ли в этом релизе нужные файлы
-                var releaseInfo = CheckReleaseForAssets(release, osArchitecture, releases);
-                if (releaseInfo != null)
+            var assets = doc.RootElement.GetProperty("assets");
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    releaseInfo.IsNewVersionAvailable = true;
-                    releaseInfo.Version = release.TagName;
-                    releaseInfo.Name = release.Name;
-                    releaseInfo.Body = release.Body;
-                    return releaseInfo;
+                    zipUrl = asset.GetProperty("browser_download_url").GetString();
+                    zipSize = asset.GetProperty("size").GetInt64();
                 }
             }
 
-            return new ReleaseInfo { IsNewVersionAvailable = false };
-        }
+            if (string.IsNullOrEmpty(zipUrl))
+                return new ReleaseInfo { IsNewVersionAvailable = false };
 
-        private ReleaseInfo CheckReleaseForAssets(Octokit.Release release, string osArchitecture, IReadOnlyList<Octokit.Release> allReleases)
-        {
-            var releaseInfo = new ReleaseInfo();
-
-            // Ищем MSIX пакеты
-            var msixAsset = FindAssetForArchitecture(release.Assets, osArchitecture, ".msix");
-            if (msixAsset != null)
+            return new ReleaseInfo
             {
-                releaseInfo.Assets[PackageType.MSIX] = new PackageAsset
+                IsNewVersionAvailable = true,
+                Version = tag,
+                Name = doc.RootElement.TryGetProperty("name", out var n) ? n.GetString() ?? $"Avora {tag}" : $"Avora {tag}",
+                Body = doc.RootElement.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "",
+                Assets = new Dictionary<PackageType, PackageAsset>
                 {
-                    Url = msixAsset.BrowserDownloadUrl,
-                    Size = msixAsset.Size,
-                    Architecture = osArchitecture
-                };
-            }
-
-            // Ищем ZIP архивы
-            var zipAsset = FindAssetForArchitecture(release.Assets, osArchitecture, ".zip");
-            if (zipAsset != null)
-            {
-                releaseInfo.Assets[PackageType.ZIP] = new PackageAsset
-                {
-                    Url = zipAsset.BrowserDownloadUrl,
-                    Size = zipAsset.Size,
-                    Architecture = osArchitecture
-                };
-            }
-
-            // Ищем EXE файлы
-            var exeAsset = FindAssetForArchitecture(release.Assets, osArchitecture, ".exe");
-            if (exeAsset != null)
-            {
-                releaseInfo.Assets[PackageType.EXE] = new PackageAsset
-                {
-                    Url = exeAsset.BrowserDownloadUrl,
-                    Size = exeAsset.Size,
-                    Architecture = osArchitecture
-                };
-            }
-
-            // Ищем сертификат
-            var cerAsset = FindCertificateAsset(allReleases, release.TagName);
-            if (cerAsset != null)
-            {
-                releaseInfo.CertificateUrl = cerAsset.BrowserDownloadUrl;
-            }
-
-            // Если нашли хотя бы один пакет и сертификат, возвращаем
-            if (releaseInfo.Assets.Count > 0 && !string.IsNullOrEmpty(releaseInfo.CertificateUrl))
-            {
-                return releaseInfo;
-            }
-
-            return null;
-        }
-
-        // Метод для сравнения версий
-        private int CompareVersions(string version1, string version2)
-        {
-            if (version1 == version2)
-                return 0;
-            if (version1 == null)
-                return -1;
-            if (version2 == null)
-                return 1;
-
-            var parts1 = version1.Split('.');
-            var parts2 = version2.Split('.');
-
-            int maxLength = Math.Max(parts1.Length, parts2.Length);
-
-            for (int i = 0; i < maxLength; i++)
-            {
-                int part1 = i < parts1.Length ? int.Parse(parts1[i]) : 0;
-                int part2 = i < parts2.Length ? int.Parse(parts2[i]) : 0;
-
-                if (part1 != part2)
-                {
-                    return part1.CompareTo(part2);
-                }
-            }
-
-            return 0;
-        }
-
-        public class VersionComparer : IComparer<string>
-        {
-            public int Compare(string x, string y)
-            {
-                return CompareVersions(x, y);
-            }
-
-            private int CompareVersions(string version1, string version2)
-            {
-                if (version1 == version2)
-                    return 0;
-                if (version1 == null)
-                    return -1;
-                if (version2 == null)
-                    return 1;
-
-                var parts1 = version1.Split('.');
-                var parts2 = version2.Split('.');
-
-                int maxLength = Math.Max(parts1.Length, parts2.Length);
-
-                for (int i = 0; i < maxLength; i++)
-                {
-                    int part1 = i < parts1.Length ? int.Parse(parts1[i]) : 0;
-                    int part2 = i < parts2.Length ? int.Parse(parts2[i]) : 0;
-
-                    if (part1 != part2)
+                    [PackageType.ZIP] = new PackageAsset
                     {
-                        return part1.CompareTo(part2);
+                        Url = zipUrl,
+                        Size = (int)zipSize,
+                        Architecture = osArch
                     }
-                }
-
-                return 0;
-            }
+                },
+                CertificateUrl = ""
+            };
         }
 
-        private Octokit.ReleaseAsset FindAssetForArchitecture(IReadOnlyList<Octokit.ReleaseAsset> assets, string architecture, string extension)
+        private static int CompareVersions(string v1, string v2)
         {
-            // Сначала ищем точное совпадение по архитектуре
-            var asset = assets.FirstOrDefault(a =>
-                a.Name.Contains(architecture, StringComparison.OrdinalIgnoreCase) &&
-                a.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+            if (v1 == v2) return 0;
+            if (v1 == null) return -1;
+            if (v2 == null) return 1;
 
-            // Если не нашли, ищем любой файл с нужным расширением
-            return asset ?? assets.FirstOrDefault(a =>
-                a.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
-        }
+            v1 = v1.TrimStart('v', 'V');
+            v2 = v2.TrimStart('v', 'V');
 
-        
-
-
-
-        private Octokit.ReleaseAsset FindCertificateAsset(IReadOnlyList<Octokit.Release> releases, string currentReleaseTag)
-        {
-            var cerAsset = releases.FirstOrDefault(r => r.TagName == currentReleaseTag)?
-                .Assets.FirstOrDefault(asset => asset.Name.EndsWith(".cer"));
-
-            if (cerAsset != null)
-                return cerAsset;
-
-            foreach (var oldRelease in releases.Where(r => string.Compare(r.TagName, currentReleaseTag) < 0))
+            var p1 = v1.Split('.');
+            var p2 = v2.Split('.');
+            int max = Math.Max(p1.Length, p2.Length);
+            for (int i = 0; i < max; i++)
             {
-                cerAsset = oldRelease.Assets.FirstOrDefault(asset => asset.Name.EndsWith(".cer"));
-                if (cerAsset != null)
-                    return cerAsset;
+                int a = i < p1.Length && int.TryParse(p1[i], out var parsedA) ? parsedA : 0;
+                int b = i < p2.Length && int.TryParse(p2[i], out var parsedB) ? parsedB : 0;
+                if (a != b) return a.CompareTo(b);
             }
-
-            return null;
+            return 0;
         }
     }
 }

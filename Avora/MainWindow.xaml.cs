@@ -952,36 +952,23 @@ namespace Avora
             var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version;
             var currentVersion = $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}.{assemblyVersion.Revision}";
             var appUpdater = new AppUpdater(currentVersion);
-            appUpdater.SelectedPackageType = Packaged.IsPackaged() ? PackageType.MSIX : PackageType.EXE;
+            appUpdater.SelectedPackageType = PackageType.ZIP;
             var updateAvailable = await appUpdater.CheckForUpdates();
 
             if (updateAvailable)
             {
-                if (Packaged.IsPackaged())
+                if (!appUpdater._currentReleaseInfo.Assets.ContainsKey(PackageType.ZIP))
                 {
-                    if (!appUpdater._currentReleaseInfo.Assets.ContainsKey(PackageType.MSIX))
-                    {
-                        return false;
-
-                    }
+                    return false;
                 }
-                else
-                {
-                    if (!appUpdater._currentReleaseInfo.Assets.ContainsKey(PackageType.EXE) &&
-                        !appUpdater._currentReleaseInfo.Assets.ContainsKey(PackageType.ZIP))
-                    {
-                        return false;
-                    }
-                }
-
 
                 dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
                     {
                         new Notification(new UpdatePage(appUpdater));
-                        //ContentFrame.Navigate(typeof(UpdatePage), appUpdater, new DrillInNavigationTransitionInfo());
                     });
                 return true;
             }
+
             return false;
         }
 
