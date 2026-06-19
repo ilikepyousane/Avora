@@ -17,9 +17,12 @@ namespace SetupLib.Services
         {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("User-Agent", "Avora");
+            http.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
 
-            var json = await http.GetStringAsync(
+            var response = await http.GetAsync(
                 $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest");
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var json = System.Text.Encoding.UTF8.GetString(bytes);
 
             var doc = JsonDocument.Parse(json);
             var tag = (doc.RootElement.GetProperty("tag_name").GetString() ?? "").TrimStart('v');
