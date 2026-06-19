@@ -164,34 +164,36 @@ namespace SetupLib.Services
             }
             else // PackageType.ZIP
             {
-                string currentDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
-                string batPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
-                string zipDest = destinationPath.Replace("'", "''");
-                string dirDest = currentDir.Replace("'", "''");
-
-                var bat = new StringBuilder();
-                bat.AppendLine("@echo off");
-                bat.AppendLine("taskkill /F /IM Avora.exe >NUL 2>&1");
-                bat.AppendLine("timeout /t 3 /nobreak >nul");
-                bat.AppendLine("powershell -NoProfile -ExecutionPolicy Bypass -Command \"$zip='" + zipDest + "';$dst='" + dirDest + "';$tmp=Join-Path $env:TEMP 'AvoraUpdate';if(Test-Path $tmp){Remove-Item $tmp -Recurse -Force};New-Item -ItemType Directory -Path $tmp -Force|Out-Null;Expand-Archive -Path $zip -DestinationPath $tmp -Force;$w=Get-ChildItem -Path $tmp -Recurse -Directory -Filter 'win-x64'|Select-Object -First 1;if($w){$src=$w.FullName}else{$src=$tmp};Copy-Item \\\"$src\\*\\\" -Destination $dst -Recurse -Force;Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item $zip -Force -ErrorAction SilentlyContinue\"");
-                bat.AppendLine("start \"\" \"" + Path.Combine(currentDir, "Avora.exe") + "\"");
-                bat.AppendLine("del \"%~f0\"");
-
-                File.WriteAllText(batPath, bat.ToString(), new UTF8Encoding(false));
-
-                Process.Start(new ProcessStartInfo
+                string extractPath;
+                if (PathInstallZIP == null)
                 {
-                    FileName = "cmd.exe",
-                    Arguments = "/c \"" + batPath + "\"",
-                    UseShellExecute = true,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                });
-
-                Thread.Sleep(2000);
-                Process.GetCurrentProcess().Kill();
-                return;
+                    string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                    extractPath = Path.Combine(programFilesPath, "Avora");
+                }
+                else
+                {
+                    extractPath = PathInstallZIP;
+                }
+                command = GetZipInstallCommand(destinationPath, extractPath);
             }
+
+            try
+            {
+                string output = ExecutePowerShellCommand(command);
+                OnInstallStatusChanged($"Результат установки:\r\n{output}");
+            }
+            catch (Exception ex)
+            {
+                OnInstallStatusChanged($"Ошибка при установке: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                try { }
+                catch { }
+            }
+
+            OnInstallStatusChanged("Обновление завершено!");
         }
 
         private string GetMsixInstallCommand(string path, bool forceInstall)
@@ -363,7 +365,6 @@ namespace SetupLib.Services
             sb.AppendLine("}");
 
             sb.AppendLine("Write-Output \"Обновление завершено!\"");
-            sb.AppendLine("Read-Host \"Нажмите Enter для выхода\"");
 
             return sb.ToString();
         }
