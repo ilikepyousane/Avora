@@ -167,38 +167,60 @@ namespace SetupLib.Services
                 string extractPath;
                 if (PathInstallZIP == null)
                 {
-                    // Определяем путь к Program Files на системном диске
                     string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
                     extractPath = Path.Combine(programFilesPath, "Avora");
-
                 }
                 else
-                                    {
-                    // Используем указанный путь
+                {
                     extractPath = PathInstallZIP;
                 }
-                command = GetZipInstallCommand(destinationPath, extractPath);
-            }
 
-            try
-            {
-                string output = ExecutePowerShellCommand(command);
-                OnInstallStatusChanged($"Результат установки:\r\n{output}");
-            }
-            catch (Exception ex)
-            {
-                OnInstallStatusChanged($"Ошибка при установке: {ex.Message}");
-                throw;
-            }
-            finally
-            {
-                // Очищаем временный файл
-                try
-                {  }
-                catch { }
-            }
+                OnInstallStatusChanged("Подготовка обновления...");
 
-            OnInstallStatusChanged("Обновление завершено!");
+                string scriptPath = Path.Combine(Path.GetTempPath(), "AvoraUpdater.ps1");
+                var sb = new StringBuilder();
+                sb.AppendLine("$zipPath = '" + destinationPath + "'");
+                sb.AppendLine("$targetDir = '" + extractPath + "'");
+                sb.AppendLine("Write-Host 'Ozhidaniye zakrytiya Avora...'");
+                sb.AppendLine("$timeout = 30; $elapsed = 0");
+                sb.AppendLine("while ($elapsed -lt $timeout) {");
+                sb.AppendLine("    $procs = Get-Process -Name 'Avora' -ErrorAction SilentlyContinue");
+                sb.AppendLine("    if (-not $procs) { break }");
+                sb.AppendLine("    Start-Sleep -Seconds 1; $elapsed++");
+                sb.AppendLine("}");
+                sb.AppendLine("$tempExtract = Join-Path $env:TEMP 'AvoraUpdate'");
+                sb.AppendLine("if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }");
+                sb.AppendLine("New-Item -ItemType Directory -Path $tempExtract -Force | Out-Null");
+                sb.AppendLine("Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force");
+                sb.AppendLine("$winX64 = Get-ChildItem -Path $tempExtract -Recurse -Directory -Filter 'win-x64' | Select-Object -First 1");
+                sb.AppendLine("if ($winX64) { $sourceDir = $winX64.FullName } else { $sourceDir = $tempExtract }");
+                sb.AppendLine("if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }");
+                sb.AppendLine("Get-ChildItem -Path $sourceDir -Recurse | ForEach-Object {");
+                sb.AppendLine("    $rel = $_.FullName.Substring($sourceDir.Length + 1)");
+                sb.AppendLine("    $dest = Join-Path $targetDir $rel");
+                sb.AppendLine("    if ($_.PSIsContainer) { if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null } }");
+                sb.AppendLine("    else { Copy-Item $_.FullName $dest -Force }");
+                sb.AppendLine("}");
+                sb.AppendLine("Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue");
+                sb.AppendLine("Remove-Item $zipPath -Force -ErrorAction SilentlyContinue");
+                sb.AppendLine("Remove-Item '" + scriptPath + "' -Force -ErrorAction SilentlyContinue");
+                sb.AppendLine("$exe = Get-ChildItem -Path $targetDir -Filter 'Avora.exe' -Recurse | Select-Object -First 1");
+                sb.AppendLine("if ($exe) { Start-Process $exe.FullName }");
+
+                File.WriteAllText(scriptPath, sb.ToString());
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath + "\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+
+                OnInstallStatusChanged("Обновление запущено. Приложение будет закрыто.");
+                Environment.Exit(0);
+                return;
+            }
         }
 
         private string GetMsixInstallCommand(string path, bool forceInstall)
