@@ -169,7 +169,7 @@ namespace SetupLib.Services
                 {
                     // Определяем путь к Program Files на системном диске
                     string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                    extractPath = Path.Combine(programFilesPath, "VK M");
+                    extractPath = Path.Combine(programFilesPath, "Avora");
 
                 }
                 else
@@ -245,8 +245,8 @@ namespace SetupLib.Services
             sb.AppendLine("Write-Output \"Запуск процесса установки...\"");
             sb.AppendLine("");
 
-            sb.AppendLine("# Закрытие процессов VK M перед установкой");
-            sb.AppendLine("$processNames = @('VK M', 'VK_UI3')");
+            sb.AppendLine("# Закрытие процессов перед установкой");
+            sb.AppendLine("$processNames = @('Avora', 'VK M', 'VK_UI3')");
             sb.AppendLine("$processes = Get-Process -Name $processNames -ErrorAction SilentlyContinue");
             sb.AppendLine("if ($processes) {");
             sb.AppendLine("    Write-Output \"Завершение процессов: $($processes.Name -join ', ')\"");
@@ -346,8 +346,8 @@ namespace SetupLib.Services
             sb.AppendLine("Remove-Item $tempExtractPath -Recurse -Force -ErrorAction SilentlyContinue");
             sb.AppendLine("");
 
-            sb.AppendLine("# Поиск исполняемого файла VK M.exe в целевой директории");
-            sb.AppendLine("$exePath = Get-ChildItem -Path $targetDir -Recurse -Filter \"VK M.exe\" | Select-Object -First 1");
+            sb.AppendLine("# Поиск исполняемого файла Avora.exe в целевой директории");
+            sb.AppendLine("$exePath = Get-ChildItem -Path $targetDir -Recurse -Filter \"Avora.exe\" | Select-Object -First 1");
             sb.AppendLine("if (-not $exePath) {");
             sb.AppendLine("    # Если VK M.exe не найден, ищем любое другое .exe");
             sb.AppendLine("    $exePath = Get-ChildItem -Path $targetDir -Recurse -Filter \"*.exe\" | Select-Object -First 1");
