@@ -29,7 +29,7 @@ namespace SetupLib.Services
             {
                 await HandleCertificateInstallation(appUpdater._currentReleaseInfo.CertificateUrl);
 
-                if (appUpdater.SelectedPackageType != PackageType.ZIP)
+                if (appUpdater.SelectedPackageType != PackageType.ZIP && appUpdater.SelectedPackageType != PackageType.EXE)
                 await HandleDependenciesInstallation(forceInstall);
             }
             
@@ -136,6 +136,30 @@ namespace SetupLib.Services
             if (packageType == PackageType.MSIX)
             {
                 command = GetMsixInstallCommand(destinationPath, forceInstall);
+            }
+            else if (packageType == PackageType.EXE)
+            {
+                OnInstallStatusChanged("Запуск установщика...");
+                try
+                {
+                    var exeProcess = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = destinationPath,
+                        UseShellExecute = true,
+                        Verb = "runas"
+                    });
+                    if (exeProcess != null)
+                    {
+                        await exeProcess.WaitForExitAsync();
+                    }
+                    OnInstallStatusChanged("Обновление завершено!");
+                }
+                catch (Exception ex)
+                {
+                    OnInstallStatusChanged($"Ошибка при запуске EXE: {ex.Message}");
+                    throw;
+                }
+                return;
             }
             else // PackageType.ZIP
             {
