@@ -29,7 +29,7 @@ namespace SetupLib.Services
             {
                 await HandleCertificateInstallation(appUpdater._currentReleaseInfo.CertificateUrl);
 
-                if (appUpdater.SelectedPackageType != PackageType.ZIP && appUpdater.SelectedPackageType != PackageType.EXE)
+                if (appUpdater.SelectedPackageType != PackageType.ZIP)
                 await HandleDependenciesInstallation(forceInstall);
             }
             
@@ -137,41 +137,19 @@ namespace SetupLib.Services
             {
                 command = GetMsixInstallCommand(destinationPath, forceInstall);
             }
-            else if (packageType == PackageType.EXE)
-            {
-                // EXE: просто запускаем файл и ждём завершения
-                OnInstallStatusChanged("Запуск установщика...");
-                try
-                {
-                    var exeProcess = Process.Start(new ProcessStartInfo
-                    {
-                        FileName = destinationPath,
-                        UseShellExecute = true,
-                        Verb = "runas"
-                    });
-                    if (exeProcess != null)
-                    {
-                        await exeProcess.WaitForExitAsync();
-                    }
-                    OnInstallStatusChanged("Обновление завершено!");
-                }
-                catch (Exception ex)
-                {
-                    OnInstallStatusChanged($"Ошибка при запуске EXE: {ex.Message}");
-                    throw;
-                }
-                return;
-            }
             else // PackageType.ZIP
             {
                 string extractPath;
                 if (PathInstallZIP == null)
                 {
+                    // Определяем путь к Program Files на системном диске
                     string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
                     extractPath = Path.Combine(programFilesPath, "Avora");
+
                 }
                 else
-                {
+                                    {
+                    // Используем указанный путь
                     extractPath = PathInstallZIP;
                 }
                 command = GetZipInstallCommand(destinationPath, extractPath);
@@ -179,33 +157,8 @@ namespace SetupLib.Services
 
             try
             {
-                if (packageType == PackageType.ZIP)
-                {
-                    string batPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
-                    string ps1Path = Path.Combine(Path.GetTempPath(), "AvoraUpdate.ps1");
-
-                    File.WriteAllText(ps1Path, command, Encoding.UTF8);
-
-                    string escapedPs1 = ps1Path.Replace("'", "''");
-                    string launcher = $"Start-Process powershell.exe -ArgumentList '-ExecutionPolicy Bypass -File \"{escapedPs1}\"' -Verb RunAs -WindowStyle Hidden";
-                    File.WriteAllText(batPath, $"@echo off\r\n{launcher}\r\n", Encoding.Default);
-
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = batPath,
-                        UseShellExecute = true,
-                        CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden
-                    });
-
-                    OnInstallStatusChanged("Обновление запущено...");
-                    return;
-                }
-                else
-                {
-                    string output = ExecutePowerShellCommand(command);
-                    OnInstallStatusChanged($"Результат установки:\r\n{output}");
-                }
+                string output = ExecutePowerShellCommand(command);
+                OnInstallStatusChanged($"Результат установки:\r\n{output}");
             }
             catch (Exception ex)
             {
@@ -214,7 +167,9 @@ namespace SetupLib.Services
             }
             finally
             {
-                try { }
+                // Очищаем временный файл
+                try
+                {  }
                 catch { }
             }
 
@@ -390,6 +345,7 @@ namespace SetupLib.Services
             sb.AppendLine("}");
 
             sb.AppendLine("Write-Output \"Обновление завершено!\"");
+            sb.AppendLine("Read-Host \"Нажмите Enter для выхода\"");
 
             return sb.ToString();
         }
@@ -424,55 +380,34 @@ namespace SetupLib.Services
 
         private string ExecutePowerShellCommand(string command)
         {
-            return ExecutePowerShellCommand(command, false);
-        }
-
-        private string ExecutePowerShellCommand(string command, bool asAdmin)
-        {
             try
             {
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
                     Arguments = $"-ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"",
-                    UseShellExecute = asAdmin,
-                    CreateNoWindow = true
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    Verb = "runas",
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
                 };
-
-                if (asAdmin)
-                {
-                    startInfo.Verb = "runas";
-                }
-                else
-                {
-                    startInfo.RedirectStandardOutput = true;
-                    startInfo.RedirectStandardError = true;
-                    startInfo.StandardOutputEncoding = Encoding.UTF8;
-                    startInfo.StandardErrorEncoding = Encoding.UTF8;
-                }
 
                 using (var process = new Process { StartInfo = startInfo })
                 {
                     process.Start();
+                    string output = process.StandardOutput.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
 
-                    if (!asAdmin)
+                    if (process.ExitCode != 0)
                     {
-                        string output = process.StandardOutput.ReadToEnd();
-                        string error = process.StandardError.ReadToEnd();
-                        process.WaitForExit();
-
-                        if (process.ExitCode != 0)
-                        {
-                            throw new Exception($"PowerShell error (exit code {process.ExitCode}): {error}");
-                        }
-
-                        return output + (string.IsNullOrEmpty(error) ? "" : $"\nErrors: {error}");
+                        throw new Exception($"PowerShell error (exit code {process.ExitCode}): {error}");
                     }
-                    else
-                    {
-                        process.WaitForExit();
-                        return "";
-                    }
+
+                    return output + (string.IsNullOrEmpty(error) ? "" : $"\nErrors: {error}");
                 }
             }
             catch (Exception ex)
