@@ -181,19 +181,24 @@ namespace SetupLib.Services
             {
                 if (packageType == PackageType.ZIP)
                 {
-                    string scriptPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.ps1");
-                    File.WriteAllText(scriptPath, command, Encoding.UTF8);
+                    string batPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
+                    string ps1Path = Path.Combine(Path.GetTempPath(), "AvoraUpdate.ps1");
+
+                    File.WriteAllText(ps1Path, command, Encoding.UTF8);
+
+                    string escapedPs1 = ps1Path.Replace("'", "''");
+                    string launcher = $"Start-Process powershell.exe -ArgumentList '-ExecutionPolicy Bypass -File \"{escapedPs1}\"' -Verb RunAs -WindowStyle Hidden";
+                    File.WriteAllText(batPath, $"@echo off\r\n{launcher}\r\n", Encoding.Default);
 
                     Process.Start(new ProcessStartInfo
                     {
-                        FileName = "powershell.exe",
-                        Arguments = $"-ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                        FileName = batPath,
                         UseShellExecute = true,
-                        Verb = "runas",
-                        CreateNoWindow = true
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden
                     });
 
-                    OnInstallStatusChanged("Примите UAC для обновления.");
+                    OnInstallStatusChanged("Обновление запущено...");
                     return;
                 }
                 else
