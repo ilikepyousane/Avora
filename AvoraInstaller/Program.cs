@@ -22,7 +22,7 @@ class Program
         Console.OutputEncoding = Encoding.UTF8;
         Console.Title = "Avora - Установка";
         Console.WriteLine("╔══════════════════════════════════════════╗");
-        Console.WriteLine("║         Avora - Установщик v0.1.2       ║");
+        Console.WriteLine("║         Avora - Установщик v0.1.3       ║");
         Console.WriteLine("╚══════════════════════════════════════════╝");
         Console.WriteLine();
 
