@@ -171,9 +171,8 @@ namespace SetupLib.Services
 
                 var bat = new StringBuilder();
                 bat.AppendLine("@echo off");
-                bat.AppendLine("timeout /t 5 /nobreak >nul");
                 bat.AppendLine("taskkill /F /IM Avora.exe >NUL 2>&1");
-                bat.AppendLine("timeout /t 2 /nobreak >nul");
+                bat.AppendLine("timeout /t 3 /nobreak >nul");
                 bat.AppendLine("powershell -NoProfile -ExecutionPolicy Bypass -Command \"$zip='" + zipDest + "';$dst='" + dirDest + "';$tmp=Join-Path $env:TEMP 'AvoraUpdate';if(Test-Path $tmp){Remove-Item $tmp -Recurse -Force};New-Item -ItemType Directory -Path $tmp -Force|Out-Null;Expand-Archive -Path $zip -DestinationPath $tmp -Force;$w=Get-ChildItem -Path $tmp -Recurse -Directory -Filter 'win-x64'|Select-Object -First 1;if($w){$src=$w.FullName}else{$src=$tmp};Copy-Item \\\"$src\\*\\\" -Destination $dst -Recurse -Force;Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item $zip -Force -ErrorAction SilentlyContinue\"");
                 bat.AppendLine("start \"\" \"" + Path.Combine(currentDir, "Avora.exe") + "\"");
                 bat.AppendLine("del \"%~f0\"");
@@ -189,7 +188,7 @@ namespace SetupLib.Services
                     WindowStyle = ProcessWindowStyle.Hidden
                 });
 
-                Thread.Sleep(300);
+                Thread.Sleep(2000);
                 Process.GetCurrentProcess().Kill();
                 return;
             }
