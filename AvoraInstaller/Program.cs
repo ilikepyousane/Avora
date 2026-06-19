@@ -14,7 +14,7 @@ class Program
     private const string GitHubRepo = "Avora";
     private const string AppName = "Avora";
     private static readonly string InstallPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppName);
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName);
     private static readonly string TempDir = Path.Combine(Path.GetTempPath(), "AvoraSetup");
 
     static async Task Main(string[] args)
@@ -22,7 +22,7 @@ class Program
         Console.OutputEncoding = Encoding.UTF8;
         Console.Title = "Avora - Установка";
         Console.WriteLine("╔══════════════════════════════════════════╗");
-        Console.WriteLine("║         Avora - Установщик v0.1.1       ║");
+        Console.WriteLine("║         Avora - Установщик v0.1.2       ║");
         Console.WriteLine("╚══════════════════════════════════════════╝");
         Console.WriteLine();
 

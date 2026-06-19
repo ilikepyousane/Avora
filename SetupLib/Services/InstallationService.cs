@@ -167,7 +167,7 @@ namespace SetupLib.Services
                 if (PathInstallZIP == null)
                 {
                     // Определяем путь к Program Files на системном диске
-                    string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                    string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                     extractPath = Path.Combine(programFilesPath, "Avora");
 
                 }

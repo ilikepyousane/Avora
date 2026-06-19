@@ -25,6 +25,7 @@ using Avora.Services;
 using Avora.Views;
 using Avora.Views.LoginWindow;
 using Avora.Views.Notification;
+using Avora.Views.Settings;
 using Avora.Views.Upload;
 using Avora.VKs;
 using Windows.ApplicationModel;
@@ -50,6 +51,7 @@ namespace Avora
         public EventHandler onBackClicked;
         public static WeakEventManager onDownloadClicked = new WeakEventManager();
         public static DownloadFileWithProgress downloadFileWithProgress = null;
+        public static AppUpdater PendingAppUpdater { get; set; }
 
         private Microsoft.Win32.SafeHandles.SafeFileHandle iIcon;
 
@@ -962,10 +964,23 @@ namespace Avora
                     return false;
                 }
 
+                PendingAppUpdater = appUpdater;
+
                 dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-                    {
-                        new Notification(new UpdatePage(appUpdater));
-                    });
+                {
+                    var goToSettingsBtn = new ButtonNotification(
+                        "Перейти в настройки",
+                        new Action(() =>
+                        {
+                            ContentFrame.Navigate(typeof(Avora.Views.Settings.SettingsPage), null, new DrillInNavigationTransitionInfo());
+                        }),
+                        closeNotification: true);
+
+                    new Notification(
+                        header: "Доступно обновление",
+                        message: $"Доступна новая версия Avora v{appUpdater.version}. Откройте настройки для установки.",
+                        button1: goToSettingsBtn);
+                });
                 return true;
             }
 

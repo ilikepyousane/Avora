@@ -1,5 +1,6 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,70 +29,83 @@ namespace Avora.Views.Settings
             try
             {
                 this.IsEnabled = false;
-                var a = await MainWindow.mainWindow.checkUpdate();
-                if (!a)
+                this.Content = "Проверка...";
+
+                var assemblyVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                var currentVersion = $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}.{assemblyVersion.Revision}";
+                var appUpdater = new SetupLib.AppUpdater(currentVersion);
+                appUpdater.SelectedPackageType = SetupLib.PackageType.ZIP;
+                var updateAvailable = await appUpdater.CheckForUpdates();
+
+                if (updateAvailable && appUpdater._currentReleaseInfo.Assets.ContainsKey(SetupLib.PackageType.ZIP))
                 {
+                    MainWindow.PendingAppUpdater = appUpdater;
 
+                    var settingsPage = FindParent<SettingsPage>();
+                    if (settingsPage != null)
+                    {
+                        settingsPage.ShowUpdatePanel(appUpdater);
+                    }
+                }
+                else
+                {
                     Flyout myFlyout = new Flyout();
-
-                    // Добавьте элементы в меню
                     TextBlock firstItem = new TextBlock { Text = "Обновлений не найдено" };
-                    
-                    // Добавляем свойства доступности для текстового блока
                     AutomationProperties.SetName(firstItem, "Результат проверки обновлений");
                     AutomationProperties.SetHelpText(firstItem, "Информирует о том, что обновления не найдены");
-
                     myFlyout.Content = firstItem;
-
-
-                    // Покажите всплывающее меню
                     myFlyout.ShowAt(this);
 
-                    // Создайте таймер, который закроет меню через 5 секунд
                     DispatcherTimer timer = new DispatcherTimer();
                     timer.Interval = TimeSpan.FromSeconds(10);
-                    timer.Tick += (s, e) =>
+                    timer.Tick += (s, ev) =>
                     {
                         myFlyout.Hide();
                         timer.Stop();
                         this.IsEnabled = true;
+                        this.Content = "Проверить обновления";
                     };
                     timer.Start();
                 }
-                else
+
+                if (updateAvailable)
                 {
+                    this.Content = "Проверить обновления";
                     this.IsEnabled = true;
                 }
             }
             catch (Exception ex)
             {
                 MenuFlyout myFlyout = new MenuFlyout();
-
-                // Добавьте элементы в меню
                 MenuFlyoutItem firstItem = new MenuFlyoutItem { Text = $"Произошла ошибка. Проверьте настройки сети.\n{ex.Message}" };
-                
-                // Добавляем свойства доступности для элемента меню
                 AutomationProperties.SetName(firstItem, "Ошибка проверки обновлений");
                 AutomationProperties.SetHelpText(firstItem, $"Произошла ошибка при проверке обновлений: {ex.Message}");
-
                 myFlyout.Items.Add(firstItem);
-
-
-                // Покажите всплывающее меню
                 myFlyout.ShowAt(this);
 
-                // Создайте таймер, который закроет меню через 5 секунд
                 DispatcherTimer timer = new DispatcherTimer();
                 timer.Interval = TimeSpan.FromSeconds(10);
-                timer.Tick += (s, e) =>
+                timer.Tick += (s, ev) =>
                 {
                     myFlyout.Hide();
                     timer.Stop();
-                  
+                    this.IsEnabled = true;
+                    this.Content = "Проверить обновления";
                 };
                 timer.Start();
-                this.IsEnabled = true;
             }
+        }
+
+        private T FindParent<T>() where T : class
+        {
+            var parent = VisualTreeHelper.GetParent(this);
+            while (parent != null)
+            {
+                if (parent is T typed)
+                    return typed;
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+            return null;
         }
     }
 }
