@@ -179,7 +179,15 @@ namespace SetupLib.Services
 
             try
             {
-                string output = ExecutePowerShellCommand(command);
+                string output;
+                if (packageType == PackageType.ZIP)
+                {
+                    output = ExecutePowerShellCommand(command, true);
+                }
+                else
+                {
+                    output = ExecutePowerShellCommand(command);
+                }
                 OnInstallStatusChanged($"Результат установки:\r\n{output}");
             }
             catch (Exception ex)
@@ -399,34 +407,55 @@ namespace SetupLib.Services
 
         private string ExecutePowerShellCommand(string command)
         {
+            return ExecutePowerShellCommand(command, false);
+        }
+
+        private string ExecutePowerShellCommand(string command, bool asAdmin)
+        {
             try
             {
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
                     Arguments = $"-ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    Verb = "runas",
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
+                    UseShellExecute = asAdmin,
+                    CreateNoWindow = true
                 };
+
+                if (asAdmin)
+                {
+                    startInfo.Verb = "runas";
+                }
+                else
+                {
+                    startInfo.RedirectStandardOutput = true;
+                    startInfo.RedirectStandardError = true;
+                    startInfo.StandardOutputEncoding = Encoding.UTF8;
+                    startInfo.StandardErrorEncoding = Encoding.UTF8;
+                }
 
                 using (var process = new Process { StartInfo = startInfo })
                 {
                     process.Start();
-                    string output = process.StandardOutput.ReadToEnd();
-                    string error = process.StandardError.ReadToEnd();
-                    process.WaitForExit();
 
-                    if (process.ExitCode != 0)
+                    if (!asAdmin)
                     {
-                        throw new Exception($"PowerShell error (exit code {process.ExitCode}): {error}");
-                    }
+                        string output = process.StandardOutput.ReadToEnd();
+                        string error = process.StandardError.ReadToEnd();
+                        process.WaitForExit();
 
-                    return output + (string.IsNullOrEmpty(error) ? "" : $"\nErrors: {error}");
+                        if (process.ExitCode != 0)
+                        {
+                            throw new Exception($"PowerShell error (exit code {process.ExitCode}): {error}");
+                        }
+
+                        return output + (string.IsNullOrEmpty(error) ? "" : $"\nErrors: {error}");
+                    }
+                    else
+                    {
+                        process.WaitForExit();
+                        return "";
+                    }
                 }
             }
             catch (Exception ex)
