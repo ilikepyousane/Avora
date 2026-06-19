@@ -307,7 +307,22 @@ namespace Avora.Controls
         AnimationsChangeImage changeImage = null;
         private void TrackControl_Loaded(object sender, RoutedEventArgs e)
         {
-           
+            if (dataTrack != null && !addedHandler)
+            {
+                Services.MediaPlayerService.AudioPlayedChangeEvent += UserAudio_AudioPlayedChangeEvent;
+                addedHandler = true;
+            }
+
+            if (dataTrack != null)
+            {
+                try
+                {
+                    var symbol = dataTrack.PlayThis ? Symbol.Pause : Symbol.Play;
+                    ChangeSymbolIcon(symbol);
+                    HandleAnimation(dataTrack.PlayThis);
+                }
+                catch { }
+            }
         }
        
         private void UserAudio_AudioPlayedChangeEvent(object sender, EventArgs e)
