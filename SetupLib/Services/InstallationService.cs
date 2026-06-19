@@ -165,37 +165,32 @@ namespace SetupLib.Services
             else // PackageType.ZIP
             {
                 string currentDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
-                string updaterScript = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
+                string batPath = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
+                string zipDest = destinationPath.Replace("'", "''");
+                string dirDest = currentDir.Replace("'", "''");
 
                 var bat = new StringBuilder();
                 bat.AppendLine("@echo off");
-                bat.AppendLine("timeout /t 3 /nobreak >nul");
-                bat.AppendLine("powershell -NoProfile -ExecutionPolicy Bypass -Command \"");
-                bat.AppendLine("  $zip = '" + destinationPath + "'");
-                bat.AppendLine("  $dst = '" + currentDir + "'");
-                bat.AppendLine("  $tmp = Join-Path $env:TEMP 'AvoraUpdate'");
-                bat.AppendLine("  if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }");
-                bat.AppendLine("  New-Item -ItemType Directory -Path $tmp -Force | Out-Null");
-                bat.AppendLine("  Expand-Archive -Path $zip -DestinationPath $tmp -Force");
-                bat.AppendLine("  $w = Get-ChildItem -Path $tmp -Recurse -Directory -Filter 'win-x64' | Select-Object -First 1");
-                bat.AppendLine("  if ($w) { $src = $w.FullName } else { $src = $tmp }");
-                bat.AppendLine("  Copy-Item \"$src\\*\" -Destination $dst -Recurse -Force");
-                bat.AppendLine("  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue");
-                bat.AppendLine("  Remove-Item $zip -Force -ErrorAction SilentlyContinue");
-                bat.AppendLine("\"");
+                bat.AppendLine("timeout /t 5 /nobreak >nul");
+                bat.AppendLine("taskkill /F /IM Avora.exe >NUL 2>&1");
+                bat.AppendLine("timeout /t 2 /nobreak >nul");
+                bat.AppendLine("powershell -NoProfile -ExecutionPolicy Bypass -Command \"$zip='" + zipDest + "';$dst='" + dirDest + "';$tmp=Join-Path $env:TEMP 'AvoraUpdate';if(Test-Path $tmp){Remove-Item $tmp -Recurse -Force};New-Item -ItemType Directory -Path $tmp -Force|Out-Null;Expand-Archive -Path $zip -DestinationPath $tmp -Force;$w=Get-ChildItem -Path $tmp -Recurse -Directory -Filter 'win-x64'|Select-Object -First 1;if($w){$src=$w.FullName}else{$src=$tmp};Copy-Item \\\"$src\\*\\\" -Destination $dst -Recurse -Force;Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item $zip -Force -ErrorAction SilentlyContinue\"");
                 bat.AppendLine("start \"\" \"" + Path.Combine(currentDir, "Avora.exe") + "\"");
                 bat.AppendLine("del \"%~f0\"");
 
-                File.WriteAllText(updaterScript, bat.ToString());
+                File.WriteAllText(batPath, bat.ToString(), new UTF8Encoding(false));
 
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = updaterScript,
+                    FileName = "cmd.exe",
+                    Arguments = "/c \"" + batPath + "\"",
                     UseShellExecute = true,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 });
 
-                Environment.Exit(0);
+                Thread.Sleep(300);
+                Process.GetCurrentProcess().Kill();
                 return;
             }
         }
