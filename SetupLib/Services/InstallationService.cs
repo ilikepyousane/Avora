@@ -164,60 +164,37 @@ namespace SetupLib.Services
             }
             else // PackageType.ZIP
             {
-                string extractPath;
-                if (PathInstallZIP == null)
-                {
-                    string programFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                    extractPath = Path.Combine(programFilesPath, "Avora");
-                }
-                else
-                {
-                    extractPath = PathInstallZIP;
-                }
+                string currentDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
+                string updaterScript = Path.Combine(Path.GetTempPath(), "AvoraUpdate.bat");
 
-                OnInstallStatusChanged("Подготовка обновления...");
+                var bat = new StringBuilder();
+                bat.AppendLine("@echo off");
+                bat.AppendLine("timeout /t 3 /nobreak >nul");
+                bat.AppendLine("powershell -NoProfile -ExecutionPolicy Bypass -Command \"");
+                bat.AppendLine("  $zip = '" + destinationPath + "'");
+                bat.AppendLine("  $dst = '" + currentDir + "'");
+                bat.AppendLine("  $tmp = Join-Path $env:TEMP 'AvoraUpdate'");
+                bat.AppendLine("  if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }");
+                bat.AppendLine("  New-Item -ItemType Directory -Path $tmp -Force | Out-Null");
+                bat.AppendLine("  Expand-Archive -Path $zip -DestinationPath $tmp -Force");
+                bat.AppendLine("  $w = Get-ChildItem -Path $tmp -Recurse -Directory -Filter 'win-x64' | Select-Object -First 1");
+                bat.AppendLine("  if ($w) { $src = $w.FullName } else { $src = $tmp }");
+                bat.AppendLine("  Copy-Item \"$src\\*\" -Destination $dst -Recurse -Force");
+                bat.AppendLine("  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue");
+                bat.AppendLine("  Remove-Item $zip -Force -ErrorAction SilentlyContinue");
+                bat.AppendLine("\"");
+                bat.AppendLine("start \"\" \"" + Path.Combine(currentDir, "Avora.exe") + "\"");
+                bat.AppendLine("del \"%~f0\"");
 
-                string scriptPath = Path.Combine(Path.GetTempPath(), "AvoraUpdater.ps1");
-                var sb = new StringBuilder();
-                sb.AppendLine("$zipPath = '" + destinationPath + "'");
-                sb.AppendLine("$targetDir = '" + extractPath + "'");
-                sb.AppendLine("Write-Host 'Ozhidaniye zakrytiya Avora...'");
-                sb.AppendLine("$timeout = 30; $elapsed = 0");
-                sb.AppendLine("while ($elapsed -lt $timeout) {");
-                sb.AppendLine("    $procs = Get-Process -Name 'Avora' -ErrorAction SilentlyContinue");
-                sb.AppendLine("    if (-not $procs) { break }");
-                sb.AppendLine("    Start-Sleep -Seconds 1; $elapsed++");
-                sb.AppendLine("}");
-                sb.AppendLine("$tempExtract = Join-Path $env:TEMP 'AvoraUpdate'");
-                sb.AppendLine("if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }");
-                sb.AppendLine("New-Item -ItemType Directory -Path $tempExtract -Force | Out-Null");
-                sb.AppendLine("Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force");
-                sb.AppendLine("$winX64 = Get-ChildItem -Path $tempExtract -Recurse -Directory -Filter 'win-x64' | Select-Object -First 1");
-                sb.AppendLine("if ($winX64) { $sourceDir = $winX64.FullName } else { $sourceDir = $tempExtract }");
-                sb.AppendLine("if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }");
-                sb.AppendLine("Get-ChildItem -Path $sourceDir -Recurse | ForEach-Object {");
-                sb.AppendLine("    $rel = $_.FullName.Substring($sourceDir.Length + 1)");
-                sb.AppendLine("    $dest = Join-Path $targetDir $rel");
-                sb.AppendLine("    if ($_.PSIsContainer) { if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null } }");
-                sb.AppendLine("    else { Copy-Item $_.FullName $dest -Force }");
-                sb.AppendLine("}");
-                sb.AppendLine("Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue");
-                sb.AppendLine("Remove-Item $zipPath -Force -ErrorAction SilentlyContinue");
-                sb.AppendLine("Remove-Item '" + scriptPath + "' -Force -ErrorAction SilentlyContinue");
-                sb.AppendLine("$exe = Get-ChildItem -Path $targetDir -Filter 'Avora.exe' -Recurse | Select-Object -First 1");
-                sb.AppendLine("if ($exe) { Start-Process $exe.FullName }");
-
-                File.WriteAllText(scriptPath, sb.ToString());
+                File.WriteAllText(updaterScript, bat.ToString());
 
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "powershell.exe",
-                    Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath + "\"",
-                    UseShellExecute = false,
+                    FileName = updaterScript,
+                    UseShellExecute = true,
                     CreateNoWindow = true
                 });
 
-                OnInstallStatusChanged("Обновление запущено. Приложение будет закрыто.");
                 Environment.Exit(0);
                 return;
             }
